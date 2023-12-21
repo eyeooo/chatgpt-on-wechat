@@ -1,18 +1,15 @@
 """
 google voice service
 """
-import json
-import os
 import random
-
-import openai
 import requests
-
+from voice import audio_convert
 from bridge.reply import Reply, ReplyType
 from common.log import logger
 from config import conf
 from voice.voice import Voice
 from common import const
+import os
 import datetime
 
 class LinkAIVoice(Voice):
@@ -27,6 +24,13 @@ class LinkAIVoice(Voice):
             model = None
             if not conf().get("text_to_voice") or conf().get("voice_to_text") == "openai":
                 model = const.WHISPER_1
+            if voice_file.endswith(".amr"):
+                try:
+                    mp3_file = os.path.splitext(voice_file)[0] + ".mp3"
+                    audio_convert.any_to_mp3(voice_file, mp3_file)
+                    voice_file = mp3_file
+                except Exception as e:
+                    logger.warn(f"[LinkVoice] amr file transfer failed, directly send amr voice file: {format(e)}")
             file = open(voice_file, "rb")
             file_body = {
                 "file": file
@@ -45,7 +49,7 @@ class LinkAIVoice(Voice):
             logger.info(f"[LinkVoice] voiceToText success, text={text}, file name={voice_file}")
         except Exception as e:
             logger.error(e)
-            reply = Reply(ReplyType.ERROR, "我暂时还无法听清您的语音，请稍后再试吧~")
+            return None
         return reply
 
     def textToVoice(self, text):
@@ -53,12 +57,13 @@ class LinkAIVoice(Voice):
             url = conf().get("linkai_api_base", "https://api.link-ai.chat") + "/v1/audio/speech"
             headers = {"Authorization": "Bearer " + conf().get("linkai_api_key")}
             model = const.TTS_1
-            if not conf().get("text_to_voice") or conf().get("text_to_voice") in [const.TTS_1, const.TTS_1_HD]:
-                model = conf().get("text_to_voice") or const.TTS_1
+            if not conf().get("text_to_voice") or conf().get("text_to_voice") in ["openai", const.TTS_1, const.TTS_1_HD]:
+                model = conf().get("text_to_voice_model") or const.TTS_1
             data = {
                 "model": model,
                 "input": text,
-                "voice": conf().get("tts_voice_id")
+                "voice": conf().get("tts_voice_id"),
+                "app_code": conf().get("linkai_app_code")
             }
             res = requests.post(url, headers=headers, json=data, timeout=(5, 120))
             if res.status_code == 200:
@@ -74,5 +79,5 @@ class LinkAIVoice(Voice):
                 return None
         except Exception as e:
             logger.error(e)
-            reply = Reply(ReplyType.ERROR, "遇到了一点小问题，请稍后再问我吧")
-        return reply
+            # reply = Reply(ReplyType.ERROR, "遇到了一点小问题，请稍后再问我吧")
+            return None
